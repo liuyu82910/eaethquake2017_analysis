@@ -1,0 +1,44 @@
+import pandas as pd, numpy as np
+import datetime as dt
+import matplotlib.pyplot as plt, seaborn as sns
+def fetch_store_quake_date(db_location=''):
+    '''
+    This func fetches and stores data of 2017 from usgs api to local sqlite3 w/o auth, please define db location
+    '''
+    start_date = dt.datetime(2017,1,1,0,0,0)
+    end_date = dt.datetime(2018,1,1,0,0,0)
+    date_range_month_end = pd.date_range(start = start_date, end = end_date,freq = 'M') #define two dates and date_range
+    date_range_temp = date_range_month_end.insert(0, start_date) #insert start datetime to the first position in a list
+    date_range = list(zip(date_range_temp,date_range_month_end))#zip two lists
+    conn = sqlite3.connect(db_location)#create a conn to Sqlite3
+    c = conn.cursor()
+    c.execute('''create table if not exists earthquake(row_num integer PRIMARY KEY AUTOINCREMENT,
+    mag double, place varchar, time datetime, updated datetime, tz int, url varchar, detail varchar, felt int, 
+    cdi decimal, mmi decimal, alert varchar, status varchar, tsunami int, sig int, net varchar, code varchar, ids varchar, 
+    sources varchar, types varchar, nst int, dmin decimal, rms double, gap int, magType varchar, type varchar, title varchar
+    )''')#create the table
+    table = 'quake' #define table name 
+    for s_time, e_time in date_range:
+        prefix = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&"
+        para = f"starttime={s_time.strftime('%Y-%m-%d')}&endtime={e_time.strftime('%Y-%m-%d')}"
+        url = ''.join([prefix, para])
+        response = requests.get(url)
+        v = [] #create an empty list to store the data one month at a time because the max return is 20,000 for this api
+        for j in range(len(response.json()['features'])):
+            res = response.json()['features'][j]['properties']
+            v.append(res)
+        for i in range(len(v)): #convert epoch time to human readable time
+            v[i]['time'] = dt.datetime.fromtimestamp(v[i]['time'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+            v[i]['updated'] = dt.datetime.fromtimestamp(v[i]['updated'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+        col = list(v[0].keys())#get the column names from dictionary keys        
+        #bulk insert into table
+        sql = f"insert or replace into {table} ({', '.join(col)}) values "
+        for d in v:
+            start = '('
+            for element in d.keys():
+                start += f'"{d[element]}",'
+            start = start[:-1] +'),'
+            sql += start
+        sql = sql[:-1]
+        c.execute(sql)
+        conn.commit()
